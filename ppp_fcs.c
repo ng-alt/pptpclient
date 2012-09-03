@@ -67,12 +67,14 @@ static u16 fcstab[256] = {
    0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
 };
 
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 #ifndef PPPINITFCS16
 #define PPPINITFCS16    0xffff  /* Initial FCS value */
 #endif
 #ifndef PPPGOODFCS16
 #define PPPGOODFCS16    0xf0b8  /* Good final FCS value */
 #endif
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
 
 /*
  * Calculate a new fcs given the current fcs and the new data.

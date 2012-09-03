@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include "dirutil.h"
 
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 /* Returned malloc'ed string representing basename */
 char *basenamex(char *pathname)
 {
@@ -21,6 +22,7 @@ char *basenamex(char *pathname)
     free(dup);
     return ptr;
 }
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
 
 /* Return malloc'ed string representing directory name (no trailing slash) */
 char *dirname(char *pathname)

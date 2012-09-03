@@ -210,6 +210,7 @@ static void ctrlp_error( int result, int error, int cause,
     }
 }
 
+#ifdef nostrip //Modified by Silver to shrink code  //Winster Chan added 05/16/2006
 static const char *ctrl_msg_types[] = {
          "invalid control message type",
 /*         (Control Connection Management) */
@@ -233,6 +234,7 @@ static const char *ctrl_msg_types[] = {
          "Set-Link-Info"                              /* 15 */
 };
 #define MAX_CTRLMSG_TYPE 15
+#endif  //Winster Chan added 05/16/2006
          
 /*** report a sent packet ****************************************************/
 static void ctrlp_rep( void * buffer, int size, int isbuff)

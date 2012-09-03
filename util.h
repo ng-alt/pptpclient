@@ -15,7 +15,7 @@ extern char * log_string;
 /* log_level sets the logging verbosity. Values range from 0 (errors only)
    to 1 (errors and warnings) to 2 (high verbosity, for debugging) */
 extern int    log_level;
-
+#ifdef nostrip //Modified by Silver to shrink code
 void _log(const char *func, const char *file, int line, const char *format, ...)
      __attribute__ ((format (printf, 4, 5)));
 void _warn(const char *func, const char *file, int line, const char *format, ...)
@@ -29,6 +29,11 @@ void _fatal(const char *func, const char *file, int line, const char *format, ..
 	_warn(__FUNCTION__,__FILE__,__LINE__, format , ## args)
 #define fatal(format, args...) \
 	_fatal(__FUNCTION__,__FILE__,__LINE__, format , ## args)
+#else
+#define log(format, args...)
+#define warn(format, args...)
+#define fatal(format, args...)
+#endif
 
 int file2fd(const char *path, const char *mode, int fd);
 

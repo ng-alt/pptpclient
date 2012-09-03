@@ -16,9 +16,11 @@
 #else
 #include <pty.h>
 #endif
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 #ifdef USER_PPP
 #include <fcntl.h>
 #endif
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/un.h>
@@ -49,6 +51,8 @@
 #include "pqueue.h"
 #include "pptp_options.h"
 
+#include "pptpox.h"
+
 #ifndef PPPD_BINARY
 #define PPPD_BINARY "pppd"
 #endif
@@ -56,13 +60,17 @@
 int syncppp = 0;
 int log_level = 1;
 int disable_buffer = 0;
+int poxfd = -1;
+int pppfd = -1;
 
 struct in_addr get_ip_address(char *name);
 int open_callmgr(struct in_addr inetaddr, char *phonenr, int argc,char **argv,char **envp, int pty_fd, int gre_fd);
 void launch_callmgr(struct in_addr inetaddr, char *phonenr, int argc,char **argv,char **envp);
 int get_call_id(int sock, pid_t gre, pid_t pppd, 
 		 u_int16_t *call_id, u_int16_t *peer_call_id);
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 void launch_pppd(char *ttydev, int argc, char **argv);
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
 
 /*** print usage and exit *****************************************************/
 void usage(char *progname)
@@ -116,6 +124,7 @@ void sighandler(int sig)
 /*** report statistics signal handler (SIGUSR1) *******************************/
 void sigstats(int sig)
 {
+#if defined(USE_SYSLOG)
     syslog(LOG_NOTICE, "GRE statistics:\n");
 #define LOG(name,value) syslog(LOG_NOTICE, name "\n", stats .value)
     LOG("rx accepted  = %d", rx_accepted);
@@ -134,7 +143,178 @@ void sigstats(int sig)
     LOG("tx oversize  = %d", tx_oversize);
     LOG("round trip   = %d usecs", rtt);
 #undef LOG
+#endif
 }
+
+static char del_host_cmd[64]="";
+
+/* Add host route only if PPTP server is not on WAN subnet */
+#ifdef STATIC_PPPOE
+void fxc_add_gw(int act, struct in_addr inetaddr) /*1: add, 2: del*/
+{
+    //struct sockaddr_pptpox sp_info;
+    FILE *fp = NULL;
+    unsigned char buf[128];
+    //unsigned char gateWay[IPV4_LEN];
+    unsigned char name[32];
+    char value[18];
+    char getGateway[18]= "";
+    char getUserIp[18]= "";
+    char getNetmask[18]= "";
+    char gate_way[] = "gateway_addr";
+    char user_ipaddr[] = "user_ip_addr";
+    char netmask_addr[] = "netmask_addr";
+    char user_nvram[] = "pptp_user_ip";
+    char gw_nvram[] = "pptp_gateway_ip";
+    char netmask_nvram[] = "pptp_user_netmask";
+    char command[64];
+
+    del_host_cmd[0] = '\0';
+
+    if ((fp = fopen("/tmp/ppp/dhcpIp", "r")) != NULL) 
+    {
+        while (fgets(buf, sizeof(buf), fp)) 
+        {
+            name[0] = '\0';
+            value[0] = '\0';
+            sscanf(buf, "%s %s", &name[0],&value[0]);
+
+            if (strcmp(name, user_ipaddr) == 0)
+            {
+                strcpy(getUserIp,value);
+            }
+            else if (strcmp(name, gate_way) == 0)
+            {
+                strcpy(getGateway,value);
+            }
+            else if (strcmp(name, netmask_addr) == 0)
+            {
+                strcpy(getNetmask,value);
+            }
+        }
+        fclose(fp);
+    }
+    else if ((fp = fopen("/tmp/ppp/pptpIp", "r")) != NULL)
+    {
+        while (fgets(buf, sizeof(buf), fp)) 
+        {
+            name[0] = '\0';
+            value[0] = '\0';
+            sscanf(buf, "%s %s", &name[0],&value[0]);
+
+            if (strcmp(name, user_nvram) == 0)
+            {
+                strcpy(getUserIp,value);
+            }
+            else if (strcmp(name, gw_nvram) == 0)
+            {
+                strcpy(getGateway,value);
+            }
+            else if (strcmp(name, netmask_nvram) == 0)
+            {
+                strcpy(getNetmask,value);
+            }
+        }
+        fclose(fp);
+    }
+
+    if (getUserIp[0] != '\0') 
+    {
+        char wan_ifname[32] = "vlan2";
+        fp = fopen("/tmp/ppp/pptpIp", "r");
+        if (fp)
+        {
+            fgets(buf, sizeof(buf), fp);
+            fclose(fp);
+            strcpy(wan_ifname, buf);
+        }
+
+        if ( act == 1 )
+        {
+            sprintf(command, "route add -host %s dev %s", getGateway, wan_ifname);
+            system(command);
+            sprintf(command, "route add default gw %s", getGateway) ;
+            system(command);
+        }
+        else if ( act == 2 )  /* remove default gateway and add host route */
+        {
+            unsigned int i_wanip, i_netmask;
+            system(del_host_cmd); /* remove last host route here */
+            system("route del default");
+            if ((strcmp (getUserIp,"0.0.0.0") != 0) && (strcmp (getNetmask,"0.0.0.0") != 0))
+            {
+                i_wanip = inet_addr(getUserIp);
+                i_netmask = inet_addr(getNetmask);
+
+                if((i_wanip & i_netmask) != (inetaddr.s_addr & i_netmask))
+                {
+                    sprintf(command, "route add -host %s dev %s", getGateway, wan_ifname);
+                    system(command);
+                    sprintf(command, "route add -host %s gw %s", 
+                            inet_ntoa(inetaddr), getGateway);
+                    system(command); 
+                }
+            }
+         
+        }
+    }
+}
+#else
+void fxc_add_gw(int act, struct in_addr inetaddr) /*1: add, 2: del*/
+{
+    struct sockaddr_pptpox sp_info;
+    FILE *fp = NULL;
+    unsigned char buf[128];
+    unsigned char gateWay[IPV4_LEN];
+    unsigned char addrname[12];
+    unsigned int getIp[IPV4_LEN];
+    char gate_way[] = "gateway_addr";
+    char command[64];
+
+    del_host_cmd[0] = '\0';
+
+    if ((fp = fopen("/tmp/ppp/dhcpIp", "r")) != NULL) 
+    {
+        memset(&sp_info, 0, sizeof(struct sockaddr_pptpox));
+    
+        sp_info.sa_family = AF_PPPOX;
+        sp_info.sa_protocol = PX_PROTO_TP;
+    
+        memset(gateWay, 0, IPV4_LEN);
+    
+        while (fgets(buf, sizeof(buf), fp)) 
+        {
+            sscanf(buf, "%s %d.%d.%d.%d", &addrname[0],
+                &getIp[0], &getIp[1], &getIp[2], &getIp[3]);
+
+            if (memcmp(addrname, gate_way, sizeof(gate_way)) == 0) 
+            {
+                if ( act == 1 )
+                {
+                    sprintf(command, "route add default gw %d.%d.%d.%d", 
+                            getIp[0], getIp[1], getIp[2], getIp[3]);
+                    system(command);
+                }
+                else if ( act == 2 )  /* remove default gateway and add host route */
+                {
+                    system(del_host_cmd); /* remove last host route here */
+                    system("route del default");
+                    sprintf(command, "route add -host %s gw %d.%d.%d.%d", 
+                    inet_ntoa(inetaddr), getIp[0], getIp[1], getIp[2], getIp[3]);
+                    system(command);
+                    
+                    sprintf(del_host_cmd, "route del %s gw %d.%d.%d.%d",
+                            inet_ntoa(inetaddr), getIp[0], getIp[1], getIp[2], getIp[3]);
+                }
+                
+                fclose(fp);
+                return;
+            }
+        }
+        fclose(fp);
+    }
+}
+#endif 
 
 /*** main *********************************************************************/
 /* TODO: redesign to avoid longjmp/setjmp.  Several variables here
@@ -145,8 +325,11 @@ int main(int argc, char **argv, char **envp)
 {
     struct in_addr inetaddr;
     volatile int callmgr_sock = -1;
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
     char ttydev[PATH_MAX];
-    int pty_fd, tty_fd, gre_fd, rc;
+    int rc;
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
+    int pty_fd, tty_fd, gre_fd;
     volatile pid_t parent_pid, child_pid;
     u_int16_t call_id, peer_call_id;
     char buf[128];
@@ -155,7 +338,13 @@ int main(int argc, char **argv, char **envp)
     char phonenrbuf[65]; /* maximum length of field plus one for the trailing
                           * '\0' */
     char * volatile phonenr = NULL;
-    volatile int launchpppd = 1, debug = 0;
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
+    volatile int launchpppd = 1;
+#else
+    volatile int launchpppd = 0;
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
+    volatile int debug = 0;
+    FILE *fp;
 
     while(1){ 
         /* structure with all recognised options for pptp */
@@ -257,14 +446,20 @@ int main(int argc, char **argv, char **envp)
     if (argc <= optind)
         usage(argv[0]);
 
+    fxc_add_gw(1, inetaddr);
+
     /* Get IP address for the hostname in argv[1] */
     inetaddr = get_ip_address(argv[optind]);
     optind++;
+
+    fxc_add_gw(2, inetaddr);
 
     /* Find the ppp options, extract phone number */
     pppdargc = argc - optind;
     pppdargv = argv + optind;
     log("The synchronous pptp option is %sactivated\n", syncppp ? "" : "NOT ");
+
+    pptp_pppox_open(&poxfd, &pppfd);
 
     /* Now we have the peer address, bind the GRE socket early,
        before starting pppd. This prevents the ICMP Unreachable bug
@@ -277,6 +472,7 @@ int main(int argc, char **argv, char **envp)
 
     /* Find an open pty/tty pair. */
     if(launchpppd){
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
         rc = openpty (&pty_fd, &tty_fd, ttydev, NULL, NULL);
         if (rc < 0) { 
             close(callmgr_sock); 
@@ -313,6 +509,7 @@ int main(int argc, char **argv, char **envp)
                 perror("Error");
                 fatal("Could not launch pppd");
         }
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
     } else { /* ! launchpppd */
         pty_fd = tty_fd = STDIN_FILENO;
         /* close unused file descriptor, that is redirected to the pty */
@@ -331,14 +528,31 @@ int main(int argc, char **argv, char **envp)
     } while (get_call_id(callmgr_sock, parent_pid, child_pid, 
                 &call_id, &peer_call_id) < 0);
 
+    /* Store pptp call_id & peer_call_id to file */
+    fp = fopen("/tmp/ppp/callIds", "w");
+    fprintf(fp, "%d %d\n", call_id, peer_call_id);
+    fclose(fp);
+
+    if ( fp = fopen("/tmp/ppp/pptpSrvIp", "w") ) 
+    {
+        fprintf(fp, "%s", inet_ntoa(inetaddr));
+        fclose(fp);
+    }
+    
+    
+    /* Connect pptp kernel module */
+    pptp_pppox_connect(&poxfd, &pppfd, call_id, peer_call_id);
+
     /* Send signal to wake up pppd task */
     if (launchpppd) {
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
         kill(parent_pid, SIGUSR1);
         sleep(2);
         /* become a daemon */
         if (!debug && daemon(0, 0) != 0) {
             perror("daemon");
         }
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
     } else {
         /* re-open stderr as /dev/null to release it */
         file2fd("/dev/null", "wb", STDERR_FILENO);
@@ -360,10 +574,16 @@ int main(int argc, char **argv, char **envp)
 
 shutdown:
     /* on close, kill all. */
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
     if(launchpppd)
         kill(parent_pid, SIGTERM);
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
     close(pty_fd);
     close(callmgr_sock);
+
+    close(pppfd);
+    close(poxfd);
+
     exit(0);
 }
 
@@ -383,6 +603,7 @@ struct in_addr get_ip_address(char *name)
     if (host->h_addrtype != AF_INET)
         fatal("Host '%s' has non-internet address", name);
     memcpy(&retval.s_addr, host->h_addr, sizeof(retval.s_addr));
+
     return retval;
 }
 
@@ -422,6 +643,7 @@ int open_callmgr(struct in_addr inetaddr, char *phonenr, int argc, char **argv,
                 }
                 default: /* parent */
                     waitpid(pid, &status, 0);
+
                     if (status!= 0)
                         fatal("Call manager exited with error %d", status);
                     break;
@@ -443,7 +665,11 @@ void launch_callmgr(struct in_addr inetaddr, char *phonenr, int argc,
       char buf[128];
       snprintf(buf, sizeof(buf), "pptp: call manager for %s", my_argv[1]);
       inststr(argc, argv, envp, buf);
-      exit(callmgr_main(3, my_argv, envp));
+
+      //exit(callmgr_main(3, my_argv, envp));
+      int ret = callmgr_main(3, my_argv, envp);
+      pptp_pppox_release(&poxfd, &pppfd);
+      exit(ret);
 }
 
 /*** exchange data with the call manager  *************************************/
@@ -483,6 +709,7 @@ int get_call_id(int sock, pid_t gre, pid_t pppd,
     return 0;
 }
 
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 /*** execvp pppd **************************************************************/
 void launch_pppd(char *ttydev, int argc, char **argv)
 {
@@ -505,5 +732,31 @@ void launch_pppd(char *ttydev, int argc, char **argv)
         new_argv[i++] = argv[j];
     new_argv[i] = NULL;
     execvp(new_argv[0], new_argv);
+}
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
+
+void connect_pppunit(void)
+{
+#include <stdio.h>
+#include <linux/types.h>
+#include <linux/ppp_defs.h>
+#include <linux/if_ppp.h>
+#define cprintf(fmt, args...) do { \
+	FILE *fp = fopen("/dev/console", "w"); \
+	if (fp) { \
+		fprintf(fp, fmt , ## args); \
+		fclose(fp); \
+	} \
+} while (0)
+    static int connected = 0;
+    int ppp_unit = 0;
+    int err;
+    if (connected) return;
+    /* cprintf("%s:%d, ppp_unit=%d\n",__func__, __LINE__,ppp_unit); */
+    if ((err = ioctl(pppfd, PPPIOCCONNECT, &ppp_unit)) < 0)
+        ; /* cprintf("Couldn't connect to ppp0"); */
+    else
+        connected = 1;
+    return;
 }
 

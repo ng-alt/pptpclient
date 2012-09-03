@@ -25,6 +25,10 @@
 #include "dirutil.h"
 #include "vector.h"
 #include "util.h"
+/*  wklin added start, 01/19/2007 @nonblock connect */
+#include "unistd.h"
+#include "fcntl.h"
+/*  wklin added end, 01/19/2007 @nonblock connect */
 
 extern struct in_addr localbind; /* from pptp.c */
 
@@ -301,6 +305,35 @@ cleanup:
     return 0;
 }
 
+/*  wklin added start, 01/19/2007, @nonblock connect */
+static int connect_nonblock(int sockfd, struct sockaddr* saptr,int salen)
+{
+    int flags;
+    fd_set wset;
+    struct timeval tval;
+
+    flags = fcntl(sockfd, F_GETFL, 0);
+    fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+    if (connect(sockfd, saptr, salen) == 0) { /* should return with error */
+        fcntl(sockfd, F_SETFL, flags); /* restore flag */
+        return 0;
+    } else if (errno != EINPROGRESS)
+        return -1;
+
+    FD_ZERO(&wset);
+    FD_SET(sockfd, &wset);
+    tval.tv_sec = 5;  /* retry every 5 seconds */
+    tval.tv_usec = 0;
+    if (select(sockfd+1, NULL, &wset, NULL, &tval) > 0) {
+        fcntl(sockfd, F_SETFL, flags); /* restore flag */
+        if (FD_ISSET(sockfd, &wset)) /* writable if connected */
+            return 0;
+    }
+    return -1;
+}
+/*  wklin added end, 01/19/2007, @nonblock connect */
+
 /*** open_inetsock ************************************************************/
 int open_inetsock(struct in_addr inetaddr)
 {
@@ -309,6 +342,7 @@ int open_inetsock(struct in_addr inetaddr)
     dest.sin_family = AF_INET;
     dest.sin_port   = htons(PPTP_PORT);
     dest.sin_addr   = inetaddr;
+tryagain:
     if ((s = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         warn("socket: %s", strerror(errno));
         return s;
@@ -322,10 +356,14 @@ int open_inetsock(struct in_addr inetaddr)
             close(s); return -1;
         }
     }
-    if (connect(s, (struct sockaddr *) &dest, sizeof(dest)) < 0) {
+    /*  wklin modified start, 01/19/2007, @nonblock connect */
+    if (connect_nonblock(s, (struct sockaddr *) &dest, sizeof(dest)) < 0) { 
         warn("connect: %s", strerror(errno));
-        close(s); return -1;
+        close(s); 
+        goto tryagain; 
+        /* return -1; */
     }
+    /*  wklin modified end, 01/19/2007, @nonblock connect */
     return s;
 }
 

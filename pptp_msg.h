@@ -256,7 +256,9 @@ struct pptp_set_link_info {   /* for control message type 15 */
 (type==PPTP_WAN_ERR_NTFY        )?sizeof(struct pptp_wan_err_ntfy):	\
 (type==PPTP_SET_LINK_INFO       )?sizeof(struct pptp_set_link_info):	\
 0)
+#ifndef max
 #define max(a,b) (((a)>(b))?(a):(b))
+#endif
 #define PPTP_CTRL_SIZE_MAX (			\
 max(sizeof(struct pptp_start_ctrl_conn),	\
 max(sizeof(struct pptp_echo_rqst),		\

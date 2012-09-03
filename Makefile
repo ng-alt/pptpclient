@@ -1,4 +1,8 @@
 # $Id: Makefile,v 1.38 2005/03/10 01:18:20 quozl Exp $
+
+include ../config.in
+include ../config.mk
+
 VERSION=1.7.0
 RELEASE=
 
@@ -7,18 +11,26 @@ RELEASE=
 PPPD = /usr/sbin/pppd
 #################################################################
 
-BINDIR=$(DESTDIR)/usr/sbin
-MANDIR=$(DESTDIR)/usr/share/man/man8
-PPPDIR=$(DESTDIR)/etc/ppp
+BINDIR=$(TARGETDIR)/usr/sbin
+MANDIR=$(TARGETDIR)/usr/share/man/man8
+PPPDIR=$(TARGETDIR)/etc/ppp
 
-CC	= gcc
 RM	= rm -f
 OPTIMIZE= -O0
 DEBUG	= -g
 INCLUDE =
+## Add undefine CODE_IN_USE compile flag on 05/12/2006, -Uxxx: Undefined, -Dxxx: Defined
+#COMPILE_FLAGS = -UCODE_IN_USE
+#CFLAGS  = -Wall $(OPTIMIZE) $(DEBUG) $(INCLUDE) $(COMPILE_FLAGS)
 CFLAGS  = -Wall $(OPTIMIZE) $(DEBUG) $(INCLUDE)
 LIBS	= -lutil
 LDFLAGS	=
+
+ifeq ($(CONFIG_STATIC_PPPOE),y)
+CFLAGS  += -DSTATIC_PPPOE
+else
+CFLAGS  += -USTATIC_PPPOE
+endif
 
 PPTP_BIN = pptp
 
@@ -55,11 +67,13 @@ test: vector_test
 
 install:
 	mkdir -p $(BINDIR)
-	install -o root -m 555 pptp $(BINDIR)
-	mkdir -p $(MANDIR)
-	install -m 644 pptp.8 $(MANDIR)
+	install -m 755 pptp $(BINDIR)
+#	mkdir -p $(MANDIR)
+#	install -m 644 pptp.8 $(MANDIR)
 	mkdir -p $(PPPDIR)
-	install -m 644 options.pptp $(PPPDIR)
+#	install -m 644 options.pptp $(PPPDIR)
+	$(STRIP) $(BINDIR)/pptp
+	rm -f $(BINDIR)/st*
 
 uninstall:
 	$(RM) $(BINDIR)/pptp $(MANDIR)/pptp.8

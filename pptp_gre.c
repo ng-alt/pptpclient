@@ -20,6 +20,16 @@
 #include "pptp_gre.h"
 #include "util.h"
 #include "pqueue.h"
+/*  added start, Winster Chan, 06/26/2006 */
+#include "pptpox.h"
+#include <stdio.h>
+#include <linux/types.h>
+#include <linux/ppp_defs.h>
+#include <linux/if_ppp.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/ioctl.h>
+/*  added end, Winster Chan, 06/26/2006 */
 
 #define PACKET_MAX 8196
 /* test for a 32 bit counter overflow */
@@ -32,6 +42,10 @@ static u_int32_t seq_sent, seq_recv;
 static u_int16_t pptp_gre_call_id, pptp_gre_peer_call_id;
 gre_stats_t stats;
 
+/*  added start, Winster Chan, 06/26/2006 */
+static int pox_fd = -1;
+/*  added start, Winster Chan, 06/26/2006 */
+
 typedef int (*callback_t)(int cl, void *pack, unsigned int len);
 
 /* decaps_hdlc gets all the packets possible with ONE blocking read */
@@ -42,7 +56,7 @@ int decaps_gre (int fd, callback_t callback, int cl);
 int encaps_gre (int fd, void *pack, unsigned int len);
 int dequeue_gre(callback_t callback, int cl);
 
-#if 1
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 #include <stdio.h>
 void print_packet(int fd, void *pack, unsigned int len)
 {
@@ -63,7 +77,7 @@ void print_packet(int fd, void *pack, unsigned int len)
     fprintf(out, "-- end packet --\n");
     fflush(out);
 }
-#endif
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
 
 /*** time_now_usecs ***********************************************************/
 uint64_t time_now_usecs()
@@ -72,6 +86,357 @@ uint64_t time_now_usecs()
     gettimeofday(&tv, NULL);
     return (tv.tv_sec * 1000000) + tv.tv_usec;
 }
+
+/*  added start, Winster Chan, 06/26/2006 */
+/**************************************************************************
+** Function:    addr_itox()
+** Description: Convert the <int> address value getting from file to
+**                  <unsigned char> address type.
+** Parameters:  (unsigned char *) daddr -- destination address value
+**              (int *) saddr -- source address value
+**              (int) convlen -- convert length
+** Return:      none.
+**************************************************************************/
+static void addr_itox(unsigned char *daddr, int *saddr, int convlen)
+{
+    int i;
+
+    for (i = 0; i < convlen; i++)
+        daddr[i] = (unsigned char)saddr[i];
+}
+
+/**************************************************************************
+** Function:    pptp_pppox_open()
+** Description: Open socket to kernel pppox driver, and open ppp device
+** Parameters:  (int *) poxfd -- pointer of file descriptor for pppox
+**              (int *) pppfd -- pointer of file descriptor for ppp device
+** Return:      none.
+**************************************************************************/
+void pptp_pppox_open(int *poxfd, int *pppfd)
+{
+    /* Open socket to pppox kernel module */
+    *poxfd = socket(AF_PPPOX,SOCK_STREAM,PX_PROTO_TP);
+    if (*poxfd >= 0) {
+        /*
+         * Save the file descriptor for getting the GRE sequence number
+         * from kernel side.
+         */
+        pox_fd = *poxfd;
+        /* Open ppp device */
+        *pppfd = open("/dev/ppp", O_RDWR);
+    }
+    else {
+        *poxfd = -1;
+        *pppfd = -1;
+    }
+}
+
+/**************************************************************************
+** Function:    pptp_pppox_get_info()
+** Description: Get the essential information for connecting pptp kernel
+**                  module. Such as Source IP, Destination IP, Remote MAC
+**                  address, Device name, call_id, and peer_call_id, etc.
+** Parameters:  none.
+** Return:      (struct sockaddr_pptpox)sp_info -- structure of information.
+**************************************************************************/
+struct sockaddr_pptpox pptp_pppox_get_info(void)
+{
+    struct sockaddr_pptpox sp_info;
+    FILE *fp = NULL;
+    int nulluserip = 0;
+    unsigned char buf[128];
+    unsigned char userIp[IPV4_LEN], servIp[IPV4_LEN], arpIp[IPV4_LEN];
+    unsigned char userNetMask[IPV4_LEN];    /* pling added 03/22/2012 */
+    unsigned char dhcpIp[IPV4_LEN], gateWay[IPV4_LEN], netMask[IPV4_LEN];
+    //unsigned char addrname[12];
+    unsigned char addrname[32];
+    unsigned int getIp[IPV4_LEN];
+    int call_id = 0, peer_call_id = 0;
+    unsigned char wan_ifname[IFNAMSIZ]; /* , added by EricHuang, 03/20/2007 */
+    unsigned char pptp_gw[IPV4_LEN]; /* for static IP case,  added by EricHuang, 04/03/2007 */
+
+    memset(&sp_info, 0, sizeof(struct sockaddr_pptpox));
+
+    sp_info.sa_family = AF_PPPOX;
+    sp_info.sa_protocol = PX_PROTO_TP;
+
+    memset(userIp, 0, IPV4_LEN);
+    memset(servIp, 0, IPV4_LEN);
+    memset(arpIp, 0, IPV4_LEN);
+    memset(dhcpIp, 0, IPV4_LEN);
+    memset(gateWay, 0, IPV4_LEN);
+    memset(netMask, 0, IPV4_LEN);
+
+    /* Get user IP and server IP from /tmp/ppp/pptpIp file */
+    if ((fp = fopen("/tmp/ppp/pptpIp", "r")) != NULL) {
+        char user_nvram[] = "pptp_user_ip";
+        char gw_nvram[] = "pptp_gateway_ip"; /*  added by EricHuang, 04/03/2007 */
+        char user_netmask[] = "pptp_user_netmask"; /*  added by EricHuang, 04/03/2007 */
+
+        /* Get WAN interface name */
+        fgets(buf, sizeof(buf), fp);
+        sscanf(buf, "%s", &wan_ifname[0]);
+        memcpy(sp_info.sa_addr.pptp.dev, wan_ifname, IFNAMSIZ);
+
+        while (fgets(buf, sizeof(buf), fp)) {
+            sscanf(buf, "%s %d.%d.%d.%d",
+                &addrname[0], &getIp[0], &getIp[1], &getIp[2], &getIp[3]);
+            /* Get user IP */
+            if (memcmp(addrname, user_nvram, sizeof(user_nvram)) == 0) {
+                /* User IP is not NULL. It's tatic IP */
+                addr_itox(userIp, getIp, IPV4_LEN);
+                if ((userIp[0] == 0x0) && (userIp[1] == 0x0) &&
+                    (userIp[2] == 0x0) && (userIp[3] == 0x0)) {
+                    nulluserip = 1;
+                }
+                else {
+                    memcpy(&sp_info.sa_addr.pptp.srcaddr, userIp, IPV4_LEN);
+                    nulluserip = 0;
+                }
+            }
+            /*  added start by EricHuang, 04/03/2007 */
+            else if (memcmp(addrname, gw_nvram, sizeof(gw_nvram)) == 0) {
+                addr_itox(pptp_gw, getIp, IPV4_LEN);
+                //memcpy(&sp_info.sa_addr.pptp.srcaddr, pptp_gw, IPV4_LEN);
+            }
+            /*  added end by EricHuang, 04/03/2007 */
+            /*  added start pling 03/22/2012 */
+            /* Read the user's static netmask settings */
+            else if (memcmp(addrname, user_netmask, sizeof(user_netmask)) == 0) {
+                addr_itox(userNetMask, getIp, IPV4_LEN);
+            }
+            /*  added end pling 03/22/2012 */
+
+        } /* End while() */
+        fclose(fp);
+        //unlink("/tmp/ppp/pptpIp");
+    } /* End if(fp) */
+
+    /*  added start by EricHuang, 03/20/2007 */
+    /* get pptp server ip after gethostbyname, it called in pptp.c */
+    if ((fp = fopen("/tmp/ppp/pptpSrvIp", "r")) != NULL) {
+        memcpy(sp_info.sa_addr.pptp.dev, wan_ifname, IFNAMSIZ);
+
+        while (fgets(buf, sizeof(buf), fp)) {
+            sscanf(buf, "%d.%d.%d.%d",
+                &getIp[0], &getIp[1], &getIp[2], &getIp[3]);
+
+                addr_itox(servIp, getIp, IPV4_LEN);
+                memcpy(&sp_info.sa_addr.pptp.dstaddr, servIp, IPV4_LEN);
+        }
+        fclose(fp);
+    }
+    /*  added end by EricHuang, 03/20/2007 */
+
+
+    if (nulluserip) {
+        /* NULL user IP, get user IP by dhcp client */
+        char dhcp_ip[] = "user_ip_addr";
+        char gate_way[] = "gateway_addr";
+        char net_mask[] = "netmask_addr";
+
+        if ((fp = fopen("/tmp/ppp/dhcpIp", "r")) != NULL) {
+            /* Get IP by dhcp client */
+            while (fgets(buf, sizeof(buf), fp)) {
+                sscanf(buf, "%s %d.%d.%d.%d", &addrname[0],
+                    &getIp[0], &getIp[1], &getIp[2], &getIp[3]);
+                if (memcmp(addrname, dhcp_ip, sizeof(dhcp_ip)) == 0) {
+                    /* Save dhcp user IP address */
+                    addr_itox(dhcpIp, getIp, IPV4_LEN);
+                    memcpy(&sp_info.sa_addr.pptp.srcaddr, dhcpIp, IPV4_LEN);
+                }
+                else if (memcmp(addrname, gate_way, sizeof(gate_way)) == 0) {
+                    /* Save gateway address */
+                    addr_itox(gateWay, getIp, IPV4_LEN);
+                }
+                else if (memcmp(addrname, net_mask, sizeof(net_mask)) == 0) {
+                    /* Save net mask address */
+                    addr_itox(netMask, getIp, IPV4_LEN);
+                }
+            } /* End while() */
+            fclose(fp);
+            //unlink("/tmp/ppp/dhcpIp");
+        } /* End if(fp) */
+    }
+
+    /* Get MAC address and interface name from /proc/net/arp file */
+    if ((fp = fopen("/proc/net/arp", "r")) != NULL) {
+        int nMac[ETH_ALEN];
+        unsigned char cMac[ETH_ALEN], ifname[IFNAMSIZ];
+        unsigned char tmpChr[16];
+        unsigned char cmpIp[IPV4_LEN];
+
+        memset(nMac, 0, ETH_ALEN);
+        memset(cMac, 0, ETH_ALEN);
+
+        if (nulluserip) {
+            /* Case: get IP by dhcp client */
+            if (((dhcpIp[0] & netMask[0]) == (servIp[0] & netMask[0])) &&
+                ((dhcpIp[1] & netMask[1]) == (servIp[1] & netMask[1])) &&
+                ((dhcpIp[2] & netMask[2]) == (servIp[2] & netMask[2])) &&
+                ((dhcpIp[3] & netMask[3]) == (servIp[3] & netMask[3]))) {
+                /*
+                 * dhcp IP & server IP are in same subnet,
+                 * match the arp table with server IP.
+                 */
+                memcpy(cmpIp, servIp, IPV4_LEN);
+            }
+            else {
+                /*
+                 * dhcp IP & server IP are in different subnet,
+                 * match the arp table with gateway IP.
+                 */
+                memcpy(cmpIp, gateWay, IPV4_LEN);
+            }
+        }
+        else {
+            /* Case: static IP */
+            /* TODO: not consider gateway case currently! */
+            
+            /*  modified start by EricHuang, 04/03/2007 */
+            /* pptp_gw will be solved in /rc/pptp.c, and if user don't enter the
+               gateway address in the gui, we use pptp server ip as gateway ip.
+            */
+            //memcpy(cmpIp, servIp, IPV4_LEN);
+            //memcpy(cmpIp, pptp_gw, IPV4_LEN); /* pling removed 03/22/2012 */
+            /*  modified end by EricHuang, 04/03/2007 */
+      
+            /*  added start pling 03/22/2012 */
+            /* Set the gateway properly according to subnet */
+            if (((userIp[0] & userNetMask[0]) == (servIp[0] & userNetMask[0])) &&
+                ((userIp[1] & userNetMask[1]) == (servIp[1] & userNetMask[1])) &&
+                ((userIp[2] & userNetMask[2]) == (servIp[2] & userNetMask[2])) &&
+                ((userIp[3] & userNetMask[3]) == (servIp[3] & userNetMask[3]))) {
+                /*
+                 * dhcp IP & server IP are in same subnet,
+                 * match the arp table with server IP.
+                 */
+                memcpy(cmpIp, servIp, IPV4_LEN);
+            }
+            else {
+                /*
+                 * dhcp IP & server IP are in different subnet,
+                 * match the arp table with gateway IP.
+                 */
+                memcpy(cmpIp, pptp_gw, IPV4_LEN);
+            }
+            /*  added end pling 03/22/2012 */
+        }
+
+        /* Skip the title name line */
+        fgets(buf, sizeof(buf), fp);
+        while (fgets(buf, sizeof(buf), fp)) {
+            sscanf(buf, "%d.%d.%d.%d %s %s %02x:%02x:%02x:%02x:%02x:%02x %s %s",
+                &getIp[0], &getIp[1], &getIp[2], &getIp[3],
+                &tmpChr[0], &tmpChr[0],
+                &nMac[0], &nMac[1], &nMac[2], &nMac[3], &nMac[4], &nMac[5],
+                &tmpChr[0], &ifname[0]);
+            addr_itox(arpIp, getIp, IPV4_LEN);
+            /* Destination entry was found in the arp table */
+            if (memcmp(cmpIp, arpIp, IPV4_LEN) == 0) {
+                addr_itox(sp_info.sa_addr.pptp.remote, nMac, ETH_ALEN);
+                break; /* Break off the while loop */
+            }
+        } /* End while() */
+        fclose(fp);
+    } /* End if(fp) */
+
+    /* Get PPTP call_id & peer_call_id */
+    if ((fp = fopen("/tmp/ppp/callIds", "r")) != NULL) {
+        while (fgets(buf, sizeof(buf), fp)) {
+            sscanf(buf, "%d %d", &call_id, &peer_call_id);
+
+            sp_info.sa_addr.pptp.cid = call_id;
+            sp_info.sa_addr.pptp.pcid = peer_call_id;
+        }
+        fclose(fp);
+    } /* End if(fp) */
+
+    return (struct sockaddr_pptpox)sp_info;
+}
+
+/**************************************************************************
+** Function:    pptp_pppox_connect()
+** Description: Actually connect to pppox kernel module with the structure
+**                  got by pptp_pppox_get_info().
+** Parameters:  (int *) poxfd -- pointer of file descriptor for pppox
+**              (int *) pppfd -- pointer of file descriptor for ppp device
+**              (u_int16_t) call_id -- local host call id
+**              (u_int16_t) peer_call_id -- peer server call id
+** Return:      (int)err -- Fail = -1
+**                          Success = 0.
+**************************************************************************/
+void pptp_pppox_connect(int *poxfd, int *pppfd,
+        u_int16_t call_id, u_int16_t peer_call_id)
+{
+    struct sockaddr_pptpox lsp;
+    int err = -1;
+    int chindex;
+	int flags;
+
+    memset(&lsp, 0, sizeof(struct sockaddr_pptpox));
+    lsp = pptp_pppox_get_info();
+
+    if (*poxfd >= 0) {
+        /* Connect pptp kernel connection */
+        err = connect(*poxfd, (struct sockaddr*)&lsp,
+            sizeof(struct sockaddr_pptpox));
+        if (err == 0) {
+            /* Get PPP channel */
+            if (ioctl(*poxfd, PPPIOCGCHAN, &chindex) == -1)
+                warn("Couldn't get channel number");
+
+            if (*pppfd >= 0) {
+                /* Attach to PPP channel */
+                if ((err = ioctl(*pppfd, PPPIOCATTCHAN, &chindex)) < 0)
+                    warn("Couldn't attach to channel");
+                flags = fcntl(*pppfd, F_GETFL);
+                if (flags == -1 || fcntl(*pppfd, F_SETFL, flags | O_NONBLOCK) == -1)
+                    warn("Couldn't set /dev/ppp (channel) to nonblock");
+            }
+            else
+                warn("Couldn't reopen /dev/ppp");
+        }
+        else
+            warn("Couldn't connect pppox, err: %d, %s", err, strerror(errno));
+    }
+}
+
+/**************************************************************************
+** Function:    pptp_pppox_release()
+** Description: Release the connection between user program and pppox kernel
+**                  driver with ioctl() and connect(), and clear the
+**                  essential information in kernel.
+** Parameters:  (int *) poxfd -- pointer of file descriptor for pppox
+**              (int *) pppfd -- pointer of file descriptor for ppp device
+** Return:      (int)err -- Fail = -1
+**                          Success = 0.
+**************************************************************************/
+void pptp_pppox_release(int *poxfd, int *pppfd)
+{
+    struct sockaddr_pptpox lsp;
+    int err = -1;
+
+    if (*poxfd >= 0) {
+        memset(&lsp, 0, sizeof(struct sockaddr_pptpox));
+        lsp = pptp_pppox_get_info();
+        if (*pppfd >= 0) {
+            /* Detach from PPP */
+    	    if (ioctl(*pppfd, PPPIOCDETACH) < 0)
+                warn("pptp_pppox_release ioctl(PPPIOCDETACH) failed");
+	    }
+
+        /* Release pptp kernel connection */
+        lsp.sa_addr.pptp.srcaddr = 0;
+        err = connect(*poxfd, (struct sockaddr*)&lsp,
+            sizeof(struct sockaddr_pptpox));
+        if (err != 0)
+            warn("Couldn't connect to pptp kernel module");
+    }
+    else
+        warn("Couldn't connect socket to pppox");
+}
+/*  added end, Winster Chan, 06/26/2006 */
 
 /*** Open IP protocol socket **************************************************/
 int pptp_gre_bind(struct in_addr inetaddr)
@@ -117,6 +482,8 @@ void pptp_gre_copy(u_int16_t call_id, u_int16_t peer_call_id,
         int retval;
         pqueue_t *head;
         int block_usecs = -1; /* wait forever */
+        extern void connect_pppunit(void); /*  wklin added, 04/08/2011 */
+        connect_pppunit(); /*  wklin added, 04/08/2011 */
         /* watch terminal and socket for input */
         FD_ZERO(&rfds);
         FD_SET(gre_fd, &rfds);
@@ -382,6 +749,16 @@ int decaps_gre (int fd, callback_t callback, int cl)
         stats.rx_truncated++;
         return 0; 
     }
+    /* wklin modified start, 01/25/2007 */
+    /* The seq# is maintained in the kernel, cannot use the seq# to determine if
+     * the packet can be accepted or not. Just forward all the ppp control
+     * packets to pppd, those packets should be justified there.
+     */
+    stats.rx_accepted++;
+    first = 0;
+    seq_recv = seq;
+    return callback(cl, buffer + ip_len + headersize, payload_len);
+#if 0
     /* check for expected sequence number */
     if ( first || (seq == seq_recv + 1)) { /* wrap-around safe */
 	if ( log_level >= 2 )
@@ -419,6 +796,7 @@ int decaps_gre (int fd, callback_t callback, int cl)
 		 seq, seq_recv + 1);
         stats.rx_overwin++;
     }
+#endif /* wklin modified end, 01/25/2007 */
     return 0;
 }
 
@@ -460,9 +838,13 @@ int encaps_gre (int fd, void *pack, unsigned int len)
         struct pptp_gre_header header;
         unsigned char buffer[PACKET_MAX + sizeof(struct pptp_gre_header)];
     } u;
-    static u_int32_t seq = 1; /* first sequence number sent must be 1 */
+    //static u_int32_t seq = 1; /* first sequence number sent must be 1 */
     unsigned int header_len;
     int rc;
+    /*  added start, Winster Chan, 06/26/2006 */
+    static u_int32_t kerseq; /* Sequence number got from kernel by ioctl() */
+    /*  added end, Winster Chan, 06/26/2006 */
+
     /* package this up in a GRE shell. */
     u.header.flags       = hton8 (PPTP_GRE_FLAG_K);
     u.header.ver         = hton8 (PPTP_GRE_VER);
@@ -490,7 +872,17 @@ int encaps_gre (int fd, void *pack, unsigned int len)
     } /* explicit brace to avoid ambiguous `else' warning */
     /* send packet with payload */
     u.header.flags |= hton8(PPTP_GRE_FLAG_S);
-    u.header.seq    = hton32(seq);
+    /*  modified start, Winster Chan, 06/26/2006 */
+    //u.header.seq    = hton32(seq);
+    if (pox_fd >= 0) {
+    	if (ioctl(pox_fd, PPTPIOCGGRESEQ, &kerseq) == -1) {
+            warn("Couldn't get GRE sequence number");
+        }
+	}
+	else
+        warn("Socket not opened");
+    u.header.seq    = hton32(kerseq);
+    /*  modified end, Winster Chan, 06/26/2006 */
     if (ack_sent != seq_recv) { /* send ack with this message */
         u.header.ver |= hton8(PPTP_GRE_FLAG_A);
         u.header.ack  = hton32(seq_recv);
@@ -506,7 +898,14 @@ int encaps_gre (int fd, void *pack, unsigned int len)
     /* copy payload into buffer */
     memcpy(u.buffer + header_len, pack, len);
     /* record and increment sequence numbers */
-    seq_sent = seq; seq++;
+    /*  modified start, Winster Chan, 06/26/2006 */
+    //seq_sent = seq; seq++;
+    /*
+     * Note: the kerseq(kernel sequence number) is maintained by
+     *       pptp kernel driver
+     */
+    seq_sent = kerseq;
+    /*  modified end, Winster Chan, 06/26/2006 */
     /* write this baby out to the net */
     /* print_packet(2, u.buffer, header_len + len); */
     rc = write(fd, u.buffer, header_len + len);

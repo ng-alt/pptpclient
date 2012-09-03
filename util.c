@@ -11,15 +11,19 @@
 #include <stdlib.h>
 #include "util.h"
 
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 #ifndef PROGRAM_NAME
 #define PROGRAM_NAME "pptp"
 #endif
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
 
 /* implementation of log_string, defined as extern in util.h */
 char *log_string = "anon";
 
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 static void open_log(void) __attribute__ ((constructor));
 static void close_log(void) __attribute__ ((destructor));
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
 
 #define MAKE_STRING(label) 				\
 va_list ap;						\
@@ -30,6 +34,7 @@ snprintf(string, sizeof(string), "%s %s[%s:%s:%d]: %s",	\
 	 log_string, label, func, file, line, buf);	\
 va_end(ap)
 
+#ifdef CODE_IN_USE  //Winster Chan added 05/16/2006
 /*** open log *****************************************************************/
 static void open_log(void) {
     openlog(PROGRAM_NAME, LOG_PID, LOG_DAEMON);
@@ -40,12 +45,15 @@ static void close_log(void)
 {
     closelog();
 }
-
+#endif  //CODE_IN_USE Winster Chan added 05/16/2006
+#ifdef nostrip //Modified by Silver to shrink code
 /*** print a message to syslog ************************************************/
 void _log(const char *func, const char *file, int line, const char *format, ...)
 {
     MAKE_STRING("log");
+#if defined(USE_SYSLOG) /*  wklin added, 08/13/2007 */
     syslog(LOG_NOTICE, "%s", string);
+#endif
 }
 
 /*** print a warning to syslog ************************************************/
@@ -53,7 +61,9 @@ void _warn(const char *func, const char *file, int line, const char *format, ...
 {
     MAKE_STRING("warn");
     fprintf(stderr, "%s\n", string);
+#if defined(USE_SYSLOG) /*  wklin added, 08/13/2007 */
     syslog(LOG_WARNING, "%s", string);
+#endif
 }
 
 /*** print a fatal warning to syslog and exit *********************************/
@@ -61,10 +71,12 @@ void _fatal(const char *func, const char *file, int line, const char *format, ..
 {
     MAKE_STRING("fatal");
     fprintf(stderr, "%s\n", string);
+#if defined(USE_SYSLOG) /*  wklin added, 08/13/2007 */
     syslog(LOG_CRIT, "%s", string);
+#endif
     exit(1);
 }
-
+#endif
 /*** connect a file to a file descriptor **************************************/
 int file2fd(const char *path, const char *mode, int fd)
 {
