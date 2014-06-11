@@ -25,8 +25,12 @@ INCLUDE =
 CFLAGS  = -Wall $(OPTIMIZE) $(DEBUG) $(INCLUDE)
 ifeq ($(PROFILE),R7000)
 #LIBS	= -lutil
+else 
+ifeq ($(PROFILE),R8000)
+#LIBS	= -lutil
 else
 LIBS	= -lutil
+endif
 endif
 
 LDFLAGS	=
