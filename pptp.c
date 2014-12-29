@@ -51,7 +51,9 @@
 #include "pqueue.h"
 #include "pptp_options.h"
 
+/* Foxconn added start, Winster Chan, 06/26/2006 */
 #include "pptpox.h"
+/* Foxconn added end, Winster Chan, 06/26/2006 */
 
 #ifndef PPPD_BINARY
 #define PPPD_BINARY "pppd"
@@ -60,8 +62,10 @@
 int syncppp = 0;
 int log_level = 1;
 int disable_buffer = 0;
+/* Foxconn added start, Winster Chan, 06/26/2006 */
 int poxfd = -1;
 int pppfd = -1;
+/* Foxconn added end, Winster Chan, 06/26/2006 */
 
 struct in_addr get_ip_address(char *name);
 int open_callmgr(struct in_addr inetaddr, char *phonenr, int argc,char **argv,char **envp, int pty_fd, int gre_fd);
@@ -124,7 +128,7 @@ void sighandler(int sig)
 /*** report statistics signal handler (SIGUSR1) *******************************/
 void sigstats(int sig)
 {
-#if defined(USE_SYSLOG)
+#if defined(USE_SYSLOG) /* foxconn wklin added, 08/13/2007 */
     syslog(LOG_NOTICE, "GRE statistics:\n");
 #define LOG(name,value) syslog(LOG_NOTICE, name "\n", stats .value)
     LOG("rx accepted  = %d", rx_accepted);
@@ -146,8 +150,10 @@ void sigstats(int sig)
 #endif
 }
 
+/* foxocnn added start by EricHuang, 04/03/2007 */
 static char del_host_cmd[64]="";
 
+/* foxconn add start by Jenny Zhao, 12/17/2008*/
 /* Add host route only if PPTP server is not on WAN subnet */
 #ifdef STATIC_PPPOE
 void fxc_add_gw(int act, struct in_addr inetaddr) /*1: add, 2: del*/
@@ -156,7 +162,7 @@ void fxc_add_gw(int act, struct in_addr inetaddr) /*1: add, 2: del*/
     FILE *fp = NULL;
     unsigned char buf[128];
     //unsigned char gateWay[IPV4_LEN];
-    unsigned char name[32];
+    unsigned char name[32];     // Foxconn modified pling 10/05/2010, 12->32
     char value[18];
     char getGateway[18]= "";
     char getUserIp[18]= "";
@@ -220,6 +226,8 @@ void fxc_add_gw(int act, struct in_addr inetaddr) /*1: add, 2: del*/
 
     if (getUserIp[0] != '\0') 
     {
+        /* Foxconn added start pling 03/30/2012 */
+        /* get the wan interface name properly */
         char wan_ifname[32] = "vlan2";
         fp = fopen("/tmp/ppp/pptpIp", "r");
         if (fp)
@@ -228,11 +236,16 @@ void fxc_add_gw(int act, struct in_addr inetaddr) /*1: add, 2: del*/
             fclose(fp);
             strcpy(wan_ifname, buf);
         }
+        /* Foxconn added end pling 03/30/2012 */
 
         if ( act == 1 )
         {
+            /* Foxconn added start pling 03/30/2012 */
+            /* Change the way to add default gateway, in case the gateway is 
+            * in different subnet from the WAN IP. */
             sprintf(command, "route add -host %s dev %s", getGateway, wan_ifname);
             system(command);
+            /* Foxconn added end pling 03/30/2012 */
             sprintf(command, "route add default gw %s", getGateway) ;
             system(command);
         }
@@ -248,8 +261,12 @@ void fxc_add_gw(int act, struct in_addr inetaddr) /*1: add, 2: del*/
 
                 if((i_wanip & i_netmask) != (inetaddr.s_addr & i_netmask))
                 {
+                    /* Foxconn added start pling 03/30/2012 */
+                    /* Change the way to add default gateway, in case the gateway is 
+                    * in different subnet from the WAN IP. */
                     sprintf(command, "route add -host %s dev %s", getGateway, wan_ifname);
                     system(command);
+                    /* Foxconn added end pling 03/30/2012 */
                     sprintf(command, "route add -host %s gw %s", 
                             inet_ntoa(inetaddr), getGateway);
                     system(command); 
@@ -315,6 +332,8 @@ void fxc_add_gw(int act, struct in_addr inetaddr) /*1: add, 2: del*/
     }
 }
 #endif 
+/* foxconn add end by Jenny Zhao, 12/17/2008*/
+/* foxocnn added end by EricHuang, 04/03/2007 */
 
 /*** main *********************************************************************/
 /* TODO: redesign to avoid longjmp/setjmp.  Several variables here
@@ -344,7 +363,9 @@ int main(int argc, char **argv, char **envp)
     volatile int launchpppd = 0;
 #endif  //CODE_IN_USE Winster Chan added 05/16/2006
     volatile int debug = 0;
+    /* Foxconn added start, Winster Chan, 06/26/2006 */
     FILE *fp;
+    /* Foxconn added end, Winster Chan, 06/26/2006 */
 
     while(1){ 
         /* structure with all recognised options for pptp */
@@ -446,20 +467,22 @@ int main(int argc, char **argv, char **envp)
     if (argc <= optind)
         usage(argv[0]);
 
-    fxc_add_gw(1, inetaddr);
+    fxc_add_gw(1, inetaddr); /* foxocnn added by EricHuang, 04/03/2007 */
 
     /* Get IP address for the hostname in argv[1] */
     inetaddr = get_ip_address(argv[optind]);
     optind++;
 
-    fxc_add_gw(2, inetaddr);
+    fxc_add_gw(2, inetaddr); /* foxocnn added by EricHuang, 04/04/2007 */
 
     /* Find the ppp options, extract phone number */
     pppdargc = argc - optind;
     pppdargv = argv + optind;
     log("The synchronous pptp option is %sactivated\n", syncppp ? "" : "NOT ");
 
+    /* Foxconn added start, Winster Chan, 06/26/2006 */
     pptp_pppox_open(&poxfd, &pppfd);
+    /* Foxconn added end, Winster Chan, 06/26/2006 */
 
     /* Now we have the peer address, bind the GRE socket early,
        before starting pppd. This prevents the ICMP Unreachable bug
@@ -528,20 +551,24 @@ int main(int argc, char **argv, char **envp)
     } while (get_call_id(callmgr_sock, parent_pid, child_pid, 
                 &call_id, &peer_call_id) < 0);
 
+    /* Foxconn added start, Winster Chan, 06/26/2006 */
     /* Store pptp call_id & peer_call_id to file */
     fp = fopen("/tmp/ppp/callIds", "w");
     fprintf(fp, "%d %d\n", call_id, peer_call_id);
     fclose(fp);
 
+    /* Foxconn added start by EricHuang, 03/20/2007 */
     if ( fp = fopen("/tmp/ppp/pptpSrvIp", "w") ) 
     {
         fprintf(fp, "%s", inet_ntoa(inetaddr));
         fclose(fp);
     }
+    /* Foxconn added end by EricHuang, 03/20/2007 */
     
     
     /* Connect pptp kernel module */
     pptp_pppox_connect(&poxfd, &pppfd, call_id, peer_call_id);
+    /* Foxconn added end, Winster Chan, 06/26/2006 */
 
     /* Send signal to wake up pppd task */
     if (launchpppd) {
@@ -581,8 +608,10 @@ shutdown:
     close(pty_fd);
     close(callmgr_sock);
 
+    /* Foxconn added start, Winster Chan, 06/26/2006 */
     close(pppfd);
     close(poxfd);
+    /* Foxconn added end, Winster Chan, 06/26/2006 */
 
     exit(0);
 }
@@ -666,10 +695,12 @@ void launch_callmgr(struct in_addr inetaddr, char *phonenr, int argc,
       snprintf(buf, sizeof(buf), "pptp: call manager for %s", my_argv[1]);
       inststr(argc, argv, envp, buf);
 
+      /* Foxconn modified start, Winster Chan, 06/26/2006 */
       //exit(callmgr_main(3, my_argv, envp));
       int ret = callmgr_main(3, my_argv, envp);
       pptp_pppox_release(&poxfd, &pppfd);
       exit(ret);
+      /* Foxconn modified end, Winster Chan, 06/26/2006 */
 }
 
 /*** exchange data with the call manager  *************************************/
@@ -735,6 +766,7 @@ void launch_pppd(char *ttydev, int argc, char **argv)
 }
 #endif  //CODE_IN_USE Winster Chan added 05/16/2006
 
+/* foxconn wklin added start, 04/12/2011 */
 void connect_pppunit(void)
 {
 #include <stdio.h>
@@ -759,4 +791,5 @@ void connect_pppunit(void)
         connected = 1;
     return;
 }
+/* foxconn wklin added end, 04/12/2011 */
 

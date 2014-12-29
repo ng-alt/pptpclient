@@ -51,7 +51,7 @@ static void close_log(void)
 void _log(const char *func, const char *file, int line, const char *format, ...)
 {
     MAKE_STRING("log");
-#if defined(USE_SYSLOG) /*  wklin added, 08/13/2007 */
+#if defined(USE_SYSLOG) /* foxconn wklin added, 08/13/2007 */
     syslog(LOG_NOTICE, "%s", string);
 #endif
 }
@@ -61,7 +61,7 @@ void _warn(const char *func, const char *file, int line, const char *format, ...
 {
     MAKE_STRING("warn");
     fprintf(stderr, "%s\n", string);
-#if defined(USE_SYSLOG) /*  wklin added, 08/13/2007 */
+#if defined(USE_SYSLOG) /* foxconn wklin added, 08/13/2007 */
     syslog(LOG_WARNING, "%s", string);
 #endif
 }
@@ -71,7 +71,7 @@ void _fatal(const char *func, const char *file, int line, const char *format, ..
 {
     MAKE_STRING("fatal");
     fprintf(stderr, "%s\n", string);
-#if defined(USE_SYSLOG) /*  wklin added, 08/13/2007 */
+#if defined(USE_SYSLOG) /* foxconn wklin added, 08/13/2007 */
     syslog(LOG_CRIT, "%s", string);
 #endif
     exit(1);

@@ -25,10 +25,10 @@
 #include "dirutil.h"
 #include "vector.h"
 #include "util.h"
-/*  wklin added start, 01/19/2007 @nonblock connect */
+/* foxconn wklin added start, 01/19/2007 @nonblock connect */
 #include "unistd.h"
 #include "fcntl.h"
-/*  wklin added end, 01/19/2007 @nonblock connect */
+/* foxconn wklin added end, 01/19/2007 @nonblock connect */
 
 extern struct in_addr localbind; /* from pptp.c */
 
@@ -305,7 +305,7 @@ cleanup:
     return 0;
 }
 
-/*  wklin added start, 01/19/2007, @nonblock connect */
+/* foxconn wklin added start, 01/19/2007, @nonblock connect */
 static int connect_nonblock(int sockfd, struct sockaddr* saptr,int salen)
 {
     int flags;
@@ -332,7 +332,7 @@ static int connect_nonblock(int sockfd, struct sockaddr* saptr,int salen)
     }
     return -1;
 }
-/*  wklin added end, 01/19/2007, @nonblock connect */
+/* foxconn wklin added end, 01/19/2007, @nonblock connect */
 
 /*** open_inetsock ************************************************************/
 int open_inetsock(struct in_addr inetaddr)
@@ -356,14 +356,14 @@ tryagain:
             close(s); return -1;
         }
     }
-    /*  wklin modified start, 01/19/2007, @nonblock connect */
+    /* foxconn wklin modified start, 01/19/2007, @nonblock connect */
     if (connect_nonblock(s, (struct sockaddr *) &dest, sizeof(dest)) < 0) { 
         warn("connect: %s", strerror(errno));
         close(s); 
         goto tryagain; 
         /* return -1; */
     }
-    /*  wklin modified end, 01/19/2007, @nonblock connect */
+    /* foxconn wklin modified end, 01/19/2007, @nonblock connect */
     return s;
 }
 

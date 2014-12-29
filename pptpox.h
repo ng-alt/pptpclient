@@ -1,10 +1,13 @@
-/*  added start, pptp, Winster Chan, 06/26/2006 */
+/* Foxconn added start, pptp, Winster Chan, 06/26/2006 */
 #include <linux/if_ether.h> /* ETH_ALEN */
 #include <net/if.h> /* IFNAMSIZ */
 
-#define PX_PROTO_OE     0 /* Currently just PPPoE */
-#define PX_PROTO_TP     1 /* Add PPTP */
-#define PX_MAX_PROTO    2
+/* foxconn, sync with pptp kernel space if_pppox.h */
+#define PX_PROTO_OE    0 /* Currently just PPPoE */
+#define PX_PROTO_TP    1 /* Add PPTP */
+#define PX_PROTO_PPTP  (PX_PROTO_TP)
+#define PX_PROTO_OL2TP 2 /* Add L2TP */
+#define PX_MAX_PROTO   3
 
 #define ETH_ALEN        6 /* Ethernet MAC address length */
 #define IPV4_LEN        4 /* IP V4 length */
@@ -42,4 +45,4 @@ void pptp_pppox_connect(int *poxfd, int *pppfd,
 struct sockaddr_pptpox pptp_pppox_get_info(void);
 void pptp_pppox_release(int *poxfd, int *pppfd);
 
-/*  added end, pptp, Winster Chan, 06/26/2006 */
+/* Foxconn added end, pptp, Winster Chan, 06/26/2006 */

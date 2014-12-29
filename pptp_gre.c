@@ -20,7 +20,7 @@
 #include "pptp_gre.h"
 #include "util.h"
 #include "pqueue.h"
-/*  added start, Winster Chan, 06/26/2006 */
+/* Foxconn added start, Winster Chan, 06/26/2006 */
 #include "pptpox.h"
 #include <stdio.h>
 #include <linux/types.h>
@@ -29,7 +29,7 @@
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
-/*  added end, Winster Chan, 06/26/2006 */
+/* Foxconn added end, Winster Chan, 06/26/2006 */
 
 #define PACKET_MAX 8196
 /* test for a 32 bit counter overflow */
@@ -42,9 +42,9 @@ static u_int32_t seq_sent, seq_recv;
 static u_int16_t pptp_gre_call_id, pptp_gre_peer_call_id;
 gre_stats_t stats;
 
-/*  added start, Winster Chan, 06/26/2006 */
+/* Foxconn added start, Winster Chan, 06/26/2006 */
 static int pox_fd = -1;
-/*  added start, Winster Chan, 06/26/2006 */
+/* Foxconn added start, Winster Chan, 06/26/2006 */
 
 typedef int (*callback_t)(int cl, void *pack, unsigned int len);
 
@@ -87,7 +87,7 @@ uint64_t time_now_usecs()
     return (tv.tv_sec * 1000000) + tv.tv_usec;
 }
 
-/*  added start, Winster Chan, 06/26/2006 */
+/* Foxconn added start, Winster Chan, 06/26/2006 */
 /**************************************************************************
 ** Function:    addr_itox()
 ** Description: Convert the <int> address value getting from file to
@@ -152,8 +152,8 @@ struct sockaddr_pptpox pptp_pppox_get_info(void)
     unsigned char addrname[32];
     unsigned int getIp[IPV4_LEN];
     int call_id = 0, peer_call_id = 0;
-    unsigned char wan_ifname[IFNAMSIZ]; /* , added by EricHuang, 03/20/2007 */
-    unsigned char pptp_gw[IPV4_LEN]; /* for static IP case,  added by EricHuang, 04/03/2007 */
+    unsigned char wan_ifname[IFNAMSIZ]; /* Foxconn, added by EricHuang, 03/20/2007 */
+    unsigned char pptp_gw[IPV4_LEN]; /* for static IP case, Foxconn added by EricHuang, 04/03/2007 */
 
     memset(&sp_info, 0, sizeof(struct sockaddr_pptpox));
 
@@ -170,8 +170,8 @@ struct sockaddr_pptpox pptp_pppox_get_info(void)
     /* Get user IP and server IP from /tmp/ppp/pptpIp file */
     if ((fp = fopen("/tmp/ppp/pptpIp", "r")) != NULL) {
         char user_nvram[] = "pptp_user_ip";
-        char gw_nvram[] = "pptp_gateway_ip"; /*  added by EricHuang, 04/03/2007 */
-        char user_netmask[] = "pptp_user_netmask"; /*  added by EricHuang, 04/03/2007 */
+        char gw_nvram[] = "pptp_gateway_ip"; /* Foxconn added by EricHuang, 04/03/2007 */
+        char user_netmask[] = "pptp_user_netmask"; /* Foxconn added by EricHuang, 04/03/2007 */
 
         /* Get WAN interface name */
         fgets(buf, sizeof(buf), fp);
@@ -194,25 +194,25 @@ struct sockaddr_pptpox pptp_pppox_get_info(void)
                     nulluserip = 0;
                 }
             }
-            /*  added start by EricHuang, 04/03/2007 */
+            /* Foxconn added start by EricHuang, 04/03/2007 */
             else if (memcmp(addrname, gw_nvram, sizeof(gw_nvram)) == 0) {
                 addr_itox(pptp_gw, getIp, IPV4_LEN);
                 //memcpy(&sp_info.sa_addr.pptp.srcaddr, pptp_gw, IPV4_LEN);
             }
-            /*  added end by EricHuang, 04/03/2007 */
-            /*  added start pling 03/22/2012 */
+            /* Foxconn added end by EricHuang, 04/03/2007 */
+            /* Foxconn added start pling 03/22/2012 */
             /* Read the user's static netmask settings */
             else if (memcmp(addrname, user_netmask, sizeof(user_netmask)) == 0) {
                 addr_itox(userNetMask, getIp, IPV4_LEN);
             }
-            /*  added end pling 03/22/2012 */
+            /* Foxconn added end pling 03/22/2012 */
 
         } /* End while() */
         fclose(fp);
         //unlink("/tmp/ppp/pptpIp");
     } /* End if(fp) */
 
-    /*  added start by EricHuang, 03/20/2007 */
+    /* Foxconn added start by EricHuang, 03/20/2007 */
     /* get pptp server ip after gethostbyname, it called in pptp.c */
     if ((fp = fopen("/tmp/ppp/pptpSrvIp", "r")) != NULL) {
         memcpy(sp_info.sa_addr.pptp.dev, wan_ifname, IFNAMSIZ);
@@ -226,7 +226,7 @@ struct sockaddr_pptpox pptp_pppox_get_info(void)
         }
         fclose(fp);
     }
-    /*  added end by EricHuang, 03/20/2007 */
+    /* Foxconn added end by EricHuang, 03/20/2007 */
 
 
     if (nulluserip) {
@@ -293,15 +293,15 @@ struct sockaddr_pptpox pptp_pppox_get_info(void)
             /* Case: static IP */
             /* TODO: not consider gateway case currently! */
             
-            /*  modified start by EricHuang, 04/03/2007 */
+            /* foxconn modified start by EricHuang, 04/03/2007 */
             /* pptp_gw will be solved in /rc/pptp.c, and if user don't enter the
                gateway address in the gui, we use pptp server ip as gateway ip.
             */
             //memcpy(cmpIp, servIp, IPV4_LEN);
             //memcpy(cmpIp, pptp_gw, IPV4_LEN); /* pling removed 03/22/2012 */
-            /*  modified end by EricHuang, 04/03/2007 */
+            /* foxconn modified end by EricHuang, 04/03/2007 */
       
-            /*  added start pling 03/22/2012 */
+            /* Foxconn added start pling 03/22/2012 */
             /* Set the gateway properly according to subnet */
             if (((userIp[0] & userNetMask[0]) == (servIp[0] & userNetMask[0])) &&
                 ((userIp[1] & userNetMask[1]) == (servIp[1] & userNetMask[1])) &&
@@ -320,7 +320,7 @@ struct sockaddr_pptpox pptp_pppox_get_info(void)
                  */
                 memcpy(cmpIp, pptp_gw, IPV4_LEN);
             }
-            /*  added end pling 03/22/2012 */
+            /* Foxconn added end pling 03/22/2012 */
         }
 
         /* Skip the title name line */
@@ -436,7 +436,7 @@ void pptp_pppox_release(int *poxfd, int *pppfd)
     else
         warn("Couldn't connect socket to pppox");
 }
-/*  added end, Winster Chan, 06/26/2006 */
+/* Foxconn added end, Winster Chan, 06/26/2006 */
 
 /*** Open IP protocol socket **************************************************/
 int pptp_gre_bind(struct in_addr inetaddr)
@@ -482,8 +482,8 @@ void pptp_gre_copy(u_int16_t call_id, u_int16_t peer_call_id,
         int retval;
         pqueue_t *head;
         int block_usecs = -1; /* wait forever */
-        extern void connect_pppunit(void); /*  wklin added, 04/08/2011 */
-        connect_pppunit(); /*  wklin added, 04/08/2011 */
+        extern void connect_pppunit(void); /* foxconn wklin added, 04/08/2011 */
+        connect_pppunit(); /* foxconn wklin added, 04/08/2011 */
         /* watch terminal and socket for input */
         FD_ZERO(&rfds);
         FD_SET(gre_fd, &rfds);
@@ -841,9 +841,9 @@ int encaps_gre (int fd, void *pack, unsigned int len)
     //static u_int32_t seq = 1; /* first sequence number sent must be 1 */
     unsigned int header_len;
     int rc;
-    /*  added start, Winster Chan, 06/26/2006 */
+    /* Foxconn added start, Winster Chan, 06/26/2006 */
     static u_int32_t kerseq; /* Sequence number got from kernel by ioctl() */
-    /*  added end, Winster Chan, 06/26/2006 */
+    /* Foxconn added end, Winster Chan, 06/26/2006 */
 
     /* package this up in a GRE shell. */
     u.header.flags       = hton8 (PPTP_GRE_FLAG_K);
@@ -872,7 +872,7 @@ int encaps_gre (int fd, void *pack, unsigned int len)
     } /* explicit brace to avoid ambiguous `else' warning */
     /* send packet with payload */
     u.header.flags |= hton8(PPTP_GRE_FLAG_S);
-    /*  modified start, Winster Chan, 06/26/2006 */
+    /* Foxconn modified start, Winster Chan, 06/26/2006 */
     //u.header.seq    = hton32(seq);
     if (pox_fd >= 0) {
     	if (ioctl(pox_fd, PPTPIOCGGRESEQ, &kerseq) == -1) {
@@ -882,7 +882,7 @@ int encaps_gre (int fd, void *pack, unsigned int len)
 	else
         warn("Socket not opened");
     u.header.seq    = hton32(kerseq);
-    /*  modified end, Winster Chan, 06/26/2006 */
+    /* Foxconn modified end, Winster Chan, 06/26/2006 */
     if (ack_sent != seq_recv) { /* send ack with this message */
         u.header.ver |= hton8(PPTP_GRE_FLAG_A);
         u.header.ack  = hton32(seq_recv);
@@ -898,14 +898,14 @@ int encaps_gre (int fd, void *pack, unsigned int len)
     /* copy payload into buffer */
     memcpy(u.buffer + header_len, pack, len);
     /* record and increment sequence numbers */
-    /*  modified start, Winster Chan, 06/26/2006 */
+    /* Foxconn modified start, Winster Chan, 06/26/2006 */
     //seq_sent = seq; seq++;
     /*
      * Note: the kerseq(kernel sequence number) is maintained by
      *       pptp kernel driver
      */
     seq_sent = kerseq;
-    /*  modified end, Winster Chan, 06/26/2006 */
+    /* Foxconn modified end, Winster Chan, 06/26/2006 */
     /* write this baby out to the net */
     /* print_packet(2, u.buffer, header_len + len); */
     rc = write(fd, u.buffer, header_len + len);

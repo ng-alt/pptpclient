@@ -1,7 +1,7 @@
 # $Id: Makefile,v 1.38 2005/03/10 01:18:20 quozl Exp $
 
-include ../config.in
 include ../config.mk
+include ../config.in
 
 VERSION=1.7.0
 RELEASE=
@@ -23,7 +23,14 @@ INCLUDE =
 #COMPILE_FLAGS = -UCODE_IN_USE
 #CFLAGS  = -Wall $(OPTIMIZE) $(DEBUG) $(INCLUDE) $(COMPILE_FLAGS)
 CFLAGS  = -Wall $(OPTIMIZE) $(DEBUG) $(INCLUDE)
+ifneq ($(PROFILE),R7000)
+ifneq ($(PROFILE),R6700)
+ifneq ($(PROFILE),R6400)
 LIBS	= -lutil
+endif
+endif
+endif
+
 LDFLAGS	=
 
 ifeq ($(CONFIG_STATIC_PPPOE),y)
