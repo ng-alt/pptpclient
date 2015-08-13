@@ -23,14 +23,9 @@ INCLUDE =
 #COMPILE_FLAGS = -UCODE_IN_USE
 #CFLAGS  = -Wall $(OPTIMIZE) $(DEBUG) $(INCLUDE) $(COMPILE_FLAGS)
 CFLAGS  = -Wall $(OPTIMIZE) $(DEBUG) $(INCLUDE)
-ifeq ($(PROFILE),R7000)
-#LIBS	= -lutil
-else 
-ifeq ($(PROFILE),R8000)
-#LIBS	= -lutil
-else
+
+ifeq ($(PROFILE),)
 LIBS	= -lutil
-endif
 endif
 
 LDFLAGS	=
